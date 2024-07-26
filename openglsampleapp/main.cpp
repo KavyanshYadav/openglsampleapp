@@ -11,7 +11,112 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_glfw.h>
 #include "World.hpp"
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 #include "Sprite3.hpp"
+float y = 0.0f;
+
+struct Vertex {
+	glm::vec3 position;
+	glm::vec3 normal;
+	glm::vec2 texCoords;
+};
+
+std::pair<std::vector<Vertex>, std::vector<GLuint>> loadModel(const std::string& path) {
+	std::cout << "ad";
+	std::vector<Vertex> vertices;
+	std::vector<GLuint> indices;
+	try{
+	Assimp::Importer importer;
+	const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_FlipUVs);
+
+	aiMesh* mesh = scene->mMeshes[0];  // Assuming only one mesh for simplicity
+
+	for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+		Vertex vertex;
+		aiVector3D pos = mesh->mVertices[i];
+		aiVector3D normal = mesh->mNormals[i];
+		
+		vertex.position = glm::vec3(pos.x, pos.y, pos.z);
+		vertex.normal = glm::vec3(normal.x, normal.y, normal.z);
+
+		vertices.push_back(vertex);
+	}
+	
+
+	
+
+
+	for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+		const aiFace& face = mesh->mFaces[i];
+		for (unsigned int j = 0; j < face.mNumIndices; j++) {
+			indices.push_back(face.mIndices[j]);
+		}
+	}
+	std::cout << "nemss" << indices.size();
+
+	}
+	catch (const std::exception&)
+	{
+	}
+	return  std::make_pair(vertices, indices);;
+	
+
+	
+}
+
+
+
+GLuint createMesh(const std::vector<Vertex>& vertices, const std::vector<GLuint>& indices) {
+	GLuint VAO, VBO, EBO;
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	glGenBuffers(1, &EBO); // Index Buffer Object
+
+	glBindVertexArray(VAO);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, position));
+	glEnableVertexAttribArray(0);
+
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+	glEnableVertexAttribArray(1);
+
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+
+	glBindVertexArray(0);
+
+	return VAO;
+}
+
+float laodmodelz = 90.0f;
+
+void renderModel(GLuint VAO, GLuint numVertices, Shader& shader) {
+	shader.use();
+	glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f,0.0f,-1.0f));
+	modelMatrix = glm::scale(modelMatrix, glm::vec3(0.1f, 0.1f, 0.1f));
+	modelMatrix = glm::rotate(modelMatrix, glm::radians(270.0f), glm::vec3(1.0f,0.0f, 0.0f));
+	modelMatrix = glm::rotate(modelMatrix, glm::radians(laodmodelz), glm::vec3(0.0f, 0.0f, 1.0f));
+
+	shader.setMat4("model", modelMatrix);
+	glBindVertexArray(VAO);
+	glDrawElements(GL_TRIANGLES, numVertices, GL_UNSIGNED_INT, 0);
+	glBindVertexArray(0);
+}
+
+
+
+
+
 glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -24,69 +129,33 @@ bool firstMouse = true;
 float sensitivity = 0.1f;
 
 
-glm::vec3 viewVector = glm::vec3(0.0f, 0.0f, -5.0f);
+glm::vec3 viewVector = glm::vec3(-3.0f, -4.2f, -27.0f);
 glm::vec3* viewVectorPointer = &viewVector;
 
+glm::vec3 rotatevec = glm::vec3(0.0f, 1.0f, 0.0f);
+glm::vec3* rotatevecPointer = &rotatevec;
+
+void processInput(GLFWwindow* window);
 
 
-void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
-{
-	float xpos = static_cast<float>(xposIn);
-	float ypos = static_cast<float>(yposIn);
-
-	if (firstMouse)
-	{
-		lastX = xpos;
-		lastY = ypos;
-		firstMouse = false;
-	}
-
-	float xoffset = xpos - lastX;
-	float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
-	lastX = xpos;
-	lastY = ypos;
-
-	float sensitivity = 0.1f; // change this value to your liking
-	xoffset *= sensitivity;
-	yoffset *= sensitivity;
-
-	yaw += xoffset;
-	pitch += yoffset;
-
-	// make sure that when pitch is out of bounds, screen doesn't get flipped
-	if (pitch > 89.0f)
-		pitch = 89.0f;
-	if (pitch < -89.0f)
-		pitch = -89.0f;
-
-	glm::vec3 front;
-	front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-	front.y = sin(glm::radians(pitch));
-	front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-	cameraFront = glm::normalize(front);
-}
-
-
-
-
-const char* readShaderFromFile(const std::string& filePath) {
-	std::ifstream shaderFile(filePath); // Open the file
-	if (!shaderFile) { // Check if the file was successfully opened
-		std::cerr << "Failed to open shader file: " << filePath << std::endl;
-		return nullptr; // Return nullptr on failure
-	}
-
-	std::stringstream shaderStream;
-	shaderStream << shaderFile.rdbuf(); // Read the file content into the stream
-	std::string shaderSource = shaderStream.str(); // Convert the stream into a string
-
-	// Allocate memory to store the shader source
-	char* shaderCode = new char[shaderSource.size() + 1];
-	std::copy(shaderSource.begin(), shaderSource.end(), shaderCode);
-	shaderCode[shaderSource.size()] = '\0'; // Null-terminate the string
-
-	return shaderCode; // Return the shader source as a const char*
-}
+//const char* readShaderFromFile(const std::string& filePath) {
+//	std::ifstream shaderFile(filePath); // Open the file
+//	if (!shaderFile) { // Check if the file was successfully opened
+//		std::cerr << "Failed to open shader file: " << filePath << std::endl;
+//		return nullptr; // Return nullptr on failure
+//	}
+//
+//	std::stringstream shaderStream;
+//	shaderStream << shaderFile.rdbuf(); // Read the file content into the stream
+//	std::string shaderSource = shaderStream.str(); // Convert the stream into a string
+//
+//	// Allocate memory to store the shader source
+//	char* shaderCode = new char[shaderSource.size() + 1];
+//	std::copy(shaderSource.begin(), shaderSource.end(), shaderCode);
+//	shaderCode[shaderSource.size()] = '\0'; // Null-terminate the string
+//
+//	return shaderCode; // Return the shader source as a const char*
+//}
 
 
 
@@ -107,10 +176,10 @@ struct MYVector4
 };
 
 
-const char* vertexShaderSource = readShaderFromFile("C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\vertexShader.glsl");
-
-const char* fragmentShaderSource = readShaderFromFile("C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\FargmentShader.glsl");
-
+//const char* vertexShaderSource = readShaderFromFile("C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\vertexShader.glsl");
+//
+//const char* fragmentShaderSource = readShaderFromFile("C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\FargmentShader.glsl");
+//
 
 void changeVec4DataUniform(GLuint Shaderprogram,const GLchar* name, MYVector4* vec4) {
 
@@ -166,60 +235,64 @@ int main() {
 	}
 
 
-	glViewport(0, 0, 800, 600);
+	glViewport(100, 0, glwidth, glheight);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 	
 	//---------------------------------------------------------------------------------------
 	
 	
 	std::vector<float> vertices = {
-		-0.5f, -0.5f, -0.5f,  
-		 0.5f, -0.5f, -0.5f, 
-		 0.5f,  0.5f, -0.5f,  
-		 0.5f,  0.5f, -0.5f,  
-		-0.5f,  0.5f, -0.5f, 
-		-0.5f, -0.5f, -0.5f,  
+		// positions          // normals
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		 0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+		-0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
 
-		-0.5f, -0.5f,  0.5f,  
-		 0.5f, -0.5f,  0.5f,  
-		 0.5f,  0.5f,  0.5f,  
-		 0.5f,  0.5f,  0.5f, 
-		-0.5f,  0.5f,  0.5f,  
-		-0.5f, -0.5f,  0.5f,  
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+		-0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+		-0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
 
-		-0.5f,  0.5f,  0.5f,  
-		-0.5f,  0.5f, -0.5f,  
-		-0.5f, -0.5f, -0.5f,  
-		-0.5f, -0.5f, -0.5f,  
-		-0.5f, -0.5f,  0.5f,  
-		-0.5f,  0.5f,  0.5f,  
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+		-0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
 
-		 0.5f,  0.5f,  0.5f,  
-		 0.5f,  0.5f, -0.5f,  
-		 0.5f, -0.5f, -0.5f,  
-		 0.5f, -0.5f, -0.5f,  
-		 0.5f, -0.5f,  0.5f,  
-		 0.5f,  0.5f,  0.5f,  
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
 
-		-0.5f, -0.5f, -0.5f,  
-		 0.5f, -0.5f, -0.5f,  
-		 0.5f, -0.5f,  0.5f,  
-		 0.5f, -0.5f,  0.5f,  
-		-0.5f, -0.5f,  0.5f,  
-		-0.5f, -0.5f, -0.5f,  
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+		 0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+		 0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+		-0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+		-0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
 
-		-0.5f,  0.5f, -0.5f,  
-		 0.5f,  0.5f, -0.5f,  
-		 0.5f,  0.5f,  0.5f,  
-		 0.5f,  0.5f,  0.5f,  
-		-0.5f,  0.5f,  0.5f,  
-		-0.5f,  0.5f, -0.5f,  	};
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+		 0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+		-0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+		-0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
+	};
 
 	Shader shader("C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\vertexShader.glsl", "C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\FargmentShader.glsl");
+	Shader lightShader("C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\lvertexShader.glsl", "C:\\Users\\ADMIN\\source\\repos\\openglsampleapp\\openglsampleapp\\shader\\lFargmentShader.glsl");
 
-	World world;
+	World world(shader);
 
 	Sprite3 cube(vertices, shader);
+	Sprite3 lighc(vertices, lightShader);
 
 	cube.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.9f, 1.0f));
 	
@@ -238,7 +311,7 @@ int main() {
 
 
 	world.addSprite(&cube);
-
+	world.addSprite(&lighc);
 	
 
 
@@ -250,13 +323,24 @@ int main() {
 	glEnable(GL_DEPTH_TEST);
 
 	cube.updateRotation(40.5f);
-	float y = 0.0f;
+	
 	int glPositionY = 0;
+	float z = 0.0f;
 
-	glfwSetCursorPosCallback(window, mouse_callback);
+	/*glfwSetCursorPosCallback(window, mouse_callback);*/
 	
 
 	// tell GLFW to capture our mouse
+	glDisable(GL_CULL_FACE);
+	glEnable(GL_DEPTH_TEST);
+	std::vector<Vertex> verticesQ;
+	std::vector<GLuint> indices;
+	
+
+
+	std::pair<std::vector<Vertex>, std::vector<GLuint>> modelData = loadModel("C:\\Users\\ADMIN\\Desktop\\Models\\name.obj");
+	GLuint VAO = createMesh(verticesQ,indices);
+	
 	
 	
 
@@ -265,16 +349,13 @@ int main() {
 
 	{
 		//processing input -----------------------------------------------------------
+		
 		processInput(window);
-
 
 
 
 		//-----------------------------------------------------------
 		
-
-
-
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -282,19 +363,42 @@ int main() {
 		// Create ImGui window
 		ImGui::Begin("Hello, world!",nullptr, ImGuiWindowFlags_NoMove);
 		ImGui::Text("This is some useful text.");
-		
+		ImGui::Text("%s",  ("X"+std::to_string(viewVector.x)).c_str());
+		ImGui::Text("%s", ("Y" + std::to_string(viewVector.y)).c_str());
+		ImGui::Text("%s", ("Z" + std::to_string(viewVector.z)).c_str());
 
-		if (ImGui::SliderFloat("x", &x, -1.0f, 2.0f))
+
+		
+		world.lightPos = lighc.position;
+		world.viewPos = glm::vec3(lighc.position.x, lighc.position.y + 10.f, lighc.position.z);
+
+		if (ImGui::SliderFloat("x", &x, -1.0f, 40.0f))
 		{
 			
 
-			cube.setposition(x,NULL,NULL);
+			lighc.setposition(x,NULL,NULL);
+			//world.lightPos = glm::vec3(x, y, 0.f);
 			
 		};
-		if (ImGui::SliderFloat("ydss", &y, -1.0f, 2.0f))
+		if (ImGui::SliderFloat("ydss", &y, -1.0f, 40.0f))
 		{
 			
-			cube.setposition(NULL,y,NULL);
+			lighc.setposition(NULL,y,NULL);
+			//world.lightPos = glm::vec3(x, y, 0.f);
+
+		};
+		if (ImGui::SliderFloat("z", &z, -1.0f, 40.0f))
+		{
+
+			lighc.setposition(NULL, NULL, z);
+			//world.lightPos = glm::vec3(x, y, 0.f);
+
+		};
+		if (ImGui::SliderFloat("loadmodel", &laodmodelz, -360.0f, 360.0f))
+		{
+
+			
+			//world.lightPos = glm::vec3(x, y, 0.f);
 
 		};
 		if (ImGui::SliderInt("y", &glPositionY, 0, 1000))
@@ -324,8 +428,12 @@ int main() {
 		glClearColor(0.2f, 0.1f, 0.4f, 0.2f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	
+		renderModel(VAO,indices.size(), shader);
+
 		glm::mat4 view = glm::translate(glm::mat4(1.0f), viewVector);
-		view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+		//view = glm::rotate(view, glm::radians(30.0f), rotatevec);
+		//view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
 		//view = glm::rotate(view, glm::radians(99.0f), glm::vec3(0.0f, 0.3f, 0.4f));
 		float aspectRatio = static_cast<float>(glwidth) / static_cast<float>(glheight);
@@ -360,23 +468,21 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 	glheight = static_cast<GLint>(height);
 
 }
+//void processInput(GLFWwindow* window)
+//{
+//	
+//	const float cameraSpeed = 0.05f; // adjust accordingly
+//	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+//		cameraPos += cameraSpeed * cameraFront;
+//	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+//		cameraPos -= cameraSpeed * cameraFront;
+//	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+//		cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+//	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+//		cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+//}
+
 void processInput(GLFWwindow* window)
-{
-	
-	const float cameraSpeed = 0.05f; // adjust accordingly
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-		cameraPos += cameraSpeed * cameraFront;
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-		cameraPos -= cameraSpeed * cameraFront;
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-		cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-		cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-}
-
-void processInput1(GLFWwindow* window)
-
-
 {
 
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -406,6 +512,19 @@ void processInput1(GLFWwindow* window)
 	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
 	{
 		viewVectorPointer->y -= 0.1f;
+	}
+	if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS)
+	{
+		rotatevecPointer->x += 10.0f;
+
+	}
+	if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
+	{
+		rotatevecPointer->y += 10.0f;
+	}
+	if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS)
+	{
+		rotatevecPointer->z += 10.0f;
 	}
 }
 ;

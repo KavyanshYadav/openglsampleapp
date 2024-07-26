@@ -8,9 +8,15 @@
 class World
 {
 public:
+	World(Shader shaderProgram);
 	
 	void addSprite(Sprite3* sprite);
 	void render(const glm::mat4& view, const glm::mat4& projection);
+	glm::vec3 lightPos;
+	glm::vec3 lightColor;
+	glm::vec3 viewPos;
+	Shader shader;
+	
 	
 
 private:
